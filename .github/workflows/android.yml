@@ -23,23 +23,51 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
-
       - name: Extract Android project
         run: |
+          mkdir -p source
           unzip -o LastWaveX-Android-Project.zip -d source
+
+          echo "Files extracted:"
+          find source -maxdepth 4 -type f | head -200
+
+      - name: Find Android project
+        run: |
+          PROJECT_DIR=$(find "$GITHUB_WORKSPACE/source" \
+            -type f -name gradlew -print -quit | xargs -r dirname)
+
+          if [ -z "$PROJECT_DIR" ]; then
+            PROJECT_DIR=$(find "$GITHUB_WORKSPACE/source" \
+              -type f -name settings.gradle -o \
+              -type f -name settings.gradle.kts | head -1 | xargs -r dirname)
+          fi
+
+          if [ -z "$PROJECT_DIR" ] || [ ! -d "$PROJECT_DIR" ]; then
+            echo "ERROR: Android Gradle project not found."
+            exit 1
+          fi
+
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Found project: $PROJECT_DIR"
 
       - name: Build APK
         run: |
-          cd source/LastWaveX
-          gradle assembleDebug
+          cd "$PROJECT_DIR"
+
+          if [ -f gradlew ]; then
+            chmod +x gradlew
+            ./gradlew assembleDebug
+          else
+            echo "Gradle wrapper missing. Checking Gradle installation..."
+            sudo apt-get update
+            sudo apt-get install -y gradle
+            gradle assembleDebug
+          fi
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: LastWaveX-APK
-          path: source/LastWaveX/app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error   ec
+          path: |
+            ${{ env.PROJECT_DIR }}/**/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
